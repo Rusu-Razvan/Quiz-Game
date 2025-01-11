@@ -1,0 +1,8 @@
+/.vscode
+/Makefile
+/client
+/quiz_questions.db
+/server
+/sqlite3.c
+/sqlite3.h
+/sqlite3.o
