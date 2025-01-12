@@ -18,9 +18,14 @@ sqlite3 *db;
 pthread_mutex_t db_mutex;
 pthread_mutex_t mutex;
 
+pthread_mutex_t winner_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t ready_clients_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t ready_clients_cond = PTHREAD_COND_INITIALIZER;
 int ready_clients = 0; // Clienții pregătiți
+
+pthread_mutex_t finish_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t finish_cond = PTHREAD_COND_INITIALIZER;
+int finished_clients = 0;
 
 int total_clients;
 char *buffer;
@@ -38,9 +43,10 @@ struct Client
   char name[256];
 };
 
-int winner_socket;
-int winner_score;
-char winner_name[256];
+int winner_socket = -1;
+int winner_score = -1;
+int winner_id = INT16_MAX;
+char winner_name[256] = {};
 
 std::queue<Client *> client_queue;
 
@@ -162,6 +168,8 @@ void get_questions(Client *client)
 
 void *handle_client(void *arg)
 {
+  printf("intrat in functia handle_client\n");
+
   Client *client = (Client *)arg;
   client->question_id = 1;
   client->score = 0;
@@ -179,11 +187,10 @@ void *handle_client(void *arg)
   ready_clients++;
   if (ready_clients >= 2)
   {
-    pthread_cond_broadcast(&ready_clients_cond); // Notificăm toți clienții
+    pthread_cond_broadcast(&ready_clients_cond);
   }
   pthread_mutex_unlock(&ready_clients_mutex);
 
-  // Așteaptă până la pornirea jocului
   pthread_mutex_lock(&ready_clients_mutex);
   while (ready_clients < 2)
   {
@@ -191,7 +198,6 @@ void *handle_client(void *arg)
   }
   pthread_mutex_unlock(&ready_clients_mutex);
 
-  // Numărătoare inversă
   for (int i = GAME_TIMER; i > 0; i--)
   {
     snprintf(buf, sizeof(buf), "Game starting in %d seconds...\n", i);
@@ -250,13 +256,13 @@ void *handle_client(void *arg)
 
         printf("Your answer is wrong! Correct answer was %c)\n", client->correct_answer);
       }
-    } else{
-        strcpy(buf, "\nTime's up! Moving to the next question.\n\n");
-             write(client->socket, buf, strlen(buf));
-             printf("Time's up for client ID %d\n", client->id);
-     }
-
-    // sleep(QUESTION_TIMER);
+    }
+    else
+    {
+      strcpy(buf, "\nTime's up! Moving to the next question.\n\n");
+      write(client->socket, buf, strlen(buf));
+      printf("Time's up for client ID %d\n", client->id);
+    }
 
     client->question_id++;
 
@@ -277,41 +283,40 @@ void *handle_client(void *arg)
 
       printf("\nNo more questions!\nYour score was: %d\n", client->score);
 
-      close(client->socket);
       break;
     }
   }
 
-  /*pthread_mutex_lock(&ready_clients_mutex);
-  ready_clients--;
-  if (ready_clients == 0)
+  pthread_mutex_lock(&winner_mutex);
+  if (client->score > winner_score || (client->score == winner_score && client->id < winner_id))
   {
-    pthread_mutex_unlock(&ready_clients_mutex);
+    winner_score = client->score;
+    winner_id = client->id;
+    strncpy(winner_name, client->name, sizeof(winner_name));
+    printf("New winner: ID = %d, Name = %s, Score = %d\n", winner_id, winner_name, winner_score);
+  }
+  pthread_mutex_unlock(&winner_mutex);
 
-    // Găsește câștigătorul
-    pthread_mutex_lock(&mutex);
+  pthread_mutex_lock(&finish_mutex);
+  finished_clients++;
 
-    while (!client_queue.empty())
-    {
-      Client *c = client_queue.front();
-      client_queue.pop();
-      if (c->score > max_score)
-      {
-        max_score = c->score;
-        winner_score = c->score;
-        strcpy(winner_name, c->name);
-        winner_socket = c->socket;
-      }
-    }
-
-    pthread_mutex_unlock(&mutex);
-
-    printf("The winner is %s with a score of %d\n", winner_name, winner_score);
+  if (finished_clients == ready_clients)
+  {
+    pthread_cond_broadcast(&finish_cond);
   }
   else
   {
-    pthread_mutex_unlock(&ready_clients_mutex);
-  }*/
+
+    pthread_cond_wait(&finish_cond, &finish_mutex);
+  }
+  pthread_mutex_unlock(&finish_mutex);
+
+  char winner_msg[BUFFER_SIZE];
+  snprintf(winner_msg, sizeof(winner_msg), "Game Over! Winner is: %s (ID: %d) with a score of %d.\n",
+           winner_name, winner_id, winner_score);
+  write(client->socket, winner_msg, strlen(winner_msg));
+
+  printf("iesit din functia handle_client\n");
   close(client->socket);
   free(client);
 
@@ -393,9 +398,8 @@ int main()
 
     pthread_create(&th, NULL, handle_client, (void *)client);
     pthread_detach(th);
-    pthread_mutex_destroy(&db_mutex);
 
-    /* s-a realizat conexiunea, se astepta mesajul */
+    
 
   } // while
 

@@ -49,7 +49,7 @@ int main(int argc, char *argv[])
     exit(EXIT_FAILURE);
   }
 
-  // Introducerea numelui utilizatorului
+  
   char name[256];
   char server_message[1024];
 
@@ -64,7 +64,7 @@ int main(int argc, char *argv[])
   server_message[bytes_received] = '\0';
   printf("%s", server_message);
 
-  // Trimit numele utilizatorului către server
+  
   fgets(name, sizeof(name), stdin);
   write(sd, name, strlen(name));
 
@@ -81,7 +81,6 @@ int main(int argc, char *argv[])
     server_message[bytes_received] = '\0';
     printf("%s", server_message);
 
-    // Dacă numărătoarea s-a terminat, ieșim din buclă
     if (strstr(server_message, "Game starting now!"))
     {
       break;
@@ -127,11 +126,11 @@ int main(int argc, char *argv[])
       }
 
         int numar;
-      //if (strcmp(question_buffer, "\nTime's up! Moving to the next question.\n\n") != 0)
+     
         if (sscanf(question_buffer, "%d.", &numar) == 1)
       {
-          printf("Am primit o intrebarea cu numarul %n\n",&numar);
-        if (strstr(question_buffer, "No more questions!") != NULL)
+          printf("Am primit intrebarea cu numarul %n\n",&numar);
+        if (strstr(question_buffer, "Game Over!") != NULL)
         {
           printf("%s", question_buffer);
           close(sd);
@@ -146,25 +145,10 @@ int main(int argc, char *argv[])
       }
 
       question_buffer[bytes_received] = '\0'; 
-      printf("%s\n", question_buffer);  //printez questions buffer
+      printf("%s\n", question_buffer);  
     }
 
-    /*else
-    {
-      printf("Time's up! Moving to the next question.\n\n");
-    }*/
-
-    /*char server_response[1024] = {};
-    bytes_received = read(sd, &server_response, sizeof(server_response));
-    if (bytes_received <= 0)
-    {
-      break;
-    }
-    printf("Am primit un raspuns de la server dupa verificarea raspunsului clientului \n");
-    server_response[bytes_received] = '\0';
-    printf("Afisez raspunsul primit de la verficarea raspunsului clientului:\n");
-    printf("%s", server_response);
-    // memset(server_response, 0, sizeof(server_response));*/
+   
   }
   /* inchidem conexiunea, am terminat */
   
