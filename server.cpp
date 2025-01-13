@@ -19,6 +19,7 @@ pthread_mutex_t db_mutex;
 pthread_mutex_t mutex;
 
 pthread_mutex_t winner_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t send_winner_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t ready_clients_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t ready_clients_cond = PTHREAD_COND_INITIALIZER;
 int ready_clients = 0; // Clienții pregătiți
@@ -26,6 +27,11 @@ int ready_clients = 0; // Clienții pregătiți
 pthread_mutex_t finish_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t finish_cond = PTHREAD_COND_INITIALIZER;
 int finished_clients = 0;
+
+int countdown_time = GAME_TIMER;
+pthread_mutex_t countdown_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t countdown_cond = PTHREAD_COND_INITIALIZER;
+bool countdown_complete = false;
 
 int total_clients;
 char *buffer;
@@ -198,15 +204,12 @@ void *handle_client(void *arg)
   }
   pthread_mutex_unlock(&ready_clients_mutex);
 
-  for (int i = GAME_TIMER; i > 0; i--)
+  pthread_mutex_lock(&countdown_mutex);
+  while (!countdown_complete)
   {
-    snprintf(buf, sizeof(buf), "Game starting in %d seconds...\n", i);
-    write(client->socket, buf, strlen(buf));
-    sleep(1);
+    pthread_cond_wait(&countdown_cond, &countdown_mutex);
   }
-
-  snprintf(buf, sizeof(buf), "Game starting now!\n\n You will have %d seconds to respond to each question!\n\n", QUESTION_TIMER);
-  write(client->socket, buf, strlen(buf));
+  pthread_mutex_unlock(&countdown_mutex);
 
   while (1)
   {
@@ -311,15 +314,66 @@ void *handle_client(void *arg)
   }
   pthread_mutex_unlock(&finish_mutex);
 
+   pthread_mutex_lock(&winner_mutex);
   char winner_msg[BUFFER_SIZE];
   snprintf(winner_msg, sizeof(winner_msg), "Game Over! Winner is: %s (ID: %d) with a score of %d.\n",
            winner_name, winner_id, winner_score);
   write(client->socket, winner_msg, strlen(winner_msg));
+   pthread_mutex_unlock(&winner_mutex);
 
-  printf("iesit din functia handle_client\n");
+  printf("iesit din functia handle_client in clientul cu id-ul: %d\n", client->id);
   close(client->socket);
   free(client);
 
+  return NULL;
+}
+
+void *start_countdown_timer(void *arg)
+{
+
+
+    pthread_mutex_lock(&ready_clients_mutex);
+    while (ready_clients < 2)
+    {
+      pthread_cond_wait(&ready_clients_cond, &ready_clients_mutex);
+    }
+    pthread_mutex_unlock(&ready_clients_mutex);
+
+
+  
+  
+  while(countdown_time > 0)
+  {
+    std::queue<Client*> temp_queue = client_queue;
+   
+   while(!temp_queue.empty())
+    {Client *client = temp_queue.front();
+    temp_queue.pop();
+    char buf[1024]={};
+    snprintf(buf, sizeof(buf), "Game starting in %d seconds...\n", countdown_time);
+    write(client->socket, buf, strlen(buf));
+    }
+    countdown_time--;
+    sleep(1);
+  }
+
+    std::queue<Client*>temp_queue = client_queue;
+    while(!temp_queue.empty())
+    {
+      Client *client = temp_queue.front();
+      temp_queue.pop();
+      char buf[1024]={};
+      snprintf(buf, sizeof(buf), "Game starting now!\n\n You will have %d seconds to respond to each question!\n\n", QUESTION_TIMER);
+      write(client->socket, buf, strlen(buf));
+    }
+
+     pthread_mutex_lock(&countdown_mutex);
+  countdown_complete = true;
+  pthread_cond_broadcast(&countdown_cond);
+  pthread_mutex_unlock(&countdown_mutex);
+
+
+  //printf("\nCountdown thread started!\n\n");
   return NULL;
 }
 
@@ -329,7 +383,7 @@ int main()
   struct sockaddr_in from;
   int sd; // descriptorul de socket
   // pthread_t th[100];    //Identificatorii thread-urilor care se vor crea
-  pthread_t th;
+  pthread_t th, countdown_th;
 
   initialize_database();
 
@@ -371,6 +425,10 @@ int main()
     exit(EXIT_FAILURE);
   }
   /* servim in mod concurent clientii...folosind thread-uri */
+
+  pthread_create(&countdown_th, NULL, start_countdown_timer, NULL);
+    pthread_detach(countdown_th);
+
   while (1)
   {
     int client_socket;
@@ -399,6 +457,7 @@ int main()
     pthread_create(&th, NULL, handle_client, (void *)client);
     pthread_detach(th);
 
+    
     
 
   } // while
