@@ -26,7 +26,10 @@ int winner_announced_clients = 0;
 
 pthread_mutex_t ready_clients_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t ready_clients_cond = PTHREAD_COND_INITIALIZER;
-int ready_clients = 0; // Clienții pregătiți
+int ready_clients = 0; 
+
+pthread_cond_t game_end_cond = PTHREAD_COND_INITIALIZER;
+int waiting_clients = 0;
 
 pthread_mutex_t finish_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t finish_cond = PTHREAD_COND_INITIALIZER;
@@ -220,9 +223,11 @@ void *handle_client(void *arg)
 
   write(client->socket, "Enter your name: ", 18);
   read(client->socket, client->name, sizeof(client->name));
-  client->name[strcspn(client->name, "\n")] = '\0'; // 
+  client->name[strcspn(client->name, "\n")] = '\0'; //
 
   printf("Client connected: ID = %d, Name = %s\n", client->id, client->name);
+
+  
 
   pthread_mutex_lock(&ready_clients_mutex);
   ready_clients++;
@@ -245,6 +250,8 @@ void *handle_client(void *arg)
     pthread_cond_wait(&countdown_cond, &countdown_mutex);
   }
   pthread_mutex_unlock(&countdown_mutex);
+
+ 
 
   while (1)
   {
@@ -360,12 +367,11 @@ void *handle_client(void *arg)
   winner_announced_clients++;
   if (winner_announced_clients == ready_clients)
   {
-    // Toți clienții au primit câștigătorul
+    
     pthread_cond_signal(&winner_cond);
   }
 
   pthread_mutex_unlock(&winner_mutex);
-
 
   printf("iesit din functia handle_client in clientul cu id-ul: %d\n", client->id);
   close(client->socket);
@@ -417,19 +423,32 @@ void *start_countdown_timer(void *arg)
     pthread_cond_broadcast(&countdown_cond);
     pthread_mutex_unlock(&countdown_mutex);
 
-    
+    pthread_mutex_lock(&mutex);
+    game_is_ongoing = true;
+    pthread_mutex_unlock(&mutex);
+
+    pthread_mutex_lock(&winner_mutex);
     while (winner_announced_clients < ready_clients)
     {
       pthread_cond_wait(&winner_cond, &winner_mutex);
     }
     pthread_mutex_unlock(&winner_mutex);
 
-    // Resetare
     reset_game_state();
     reset_countdown();
 
-    
+    pthread_mutex_lock(&ready_clients_mutex);
+    game_is_ongoing = false;
+
+   
+    if (waiting_clients > 0)
+    {
+      pthread_cond_broadcast(&game_end_cond);
+    }
+    pthread_mutex_unlock(&ready_clients_mutex);
   }
+
+  
 
   return NULL;
 }
@@ -501,6 +520,16 @@ int main()
       perror("[server]Eroare la accept().\n");
       continue;
     }
+
+    pthread_mutex_lock(&ready_clients_mutex);
+
+    if (game_is_ongoing)
+    {
+      waiting_clients++;
+      pthread_cond_wait(&game_end_cond, &ready_clients_mutex);
+      waiting_clients--;
+    }
+    pthread_mutex_unlock(&ready_clients_mutex);
 
     Client *client = (Client *)malloc(sizeof(Client));
     client->socket = client_socket;
