@@ -314,6 +314,8 @@ void *handle_client(void *arg)
   }
   pthread_mutex_unlock(&finish_mutex);
 
+  sleep(1);
+
    pthread_mutex_lock(&winner_mutex);
   char winner_msg[BUFFER_SIZE];
   snprintf(winner_msg, sizeof(winner_msg), "Game Over! Winner is: %s (ID: %d) with a score of %d.\n",
